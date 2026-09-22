@@ -13,9 +13,11 @@ def auto_enable_custom_integrations(enable_custom_integrations):
 @pytest.fixture
 def mock_api():
     """Patch JciHitachiAWSAPI with a MagicMock instance that logs in fine."""
-    with patch("custom_components.jcihitachi_tw.JciHitachiAWSAPI") as cls:
-        api = MagicMock()
-        api.things = {}
-        api.get_status.return_value = {}
-        cls.return_value = api
+    api = MagicMock()
+    api.things = {}
+    api.get_status.return_value = {}
+    # __init__.py and config_flow.py each import the class by name.
+    with patch("custom_components.jcihitachi_tw.JciHitachiAWSAPI", return_value=api), patch(
+        "custom_components.jcihitachi_tw.config_flow.JciHitachiAWSAPI", return_value=api
+    ):
         yield api
