@@ -1,12 +1,15 @@
 """JciHitachi integration."""
 import asyncio
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import timedelta
 from queue import Queue
 from typing import Optional
 
-import async_timeout
+import httpx
+from homeassistant.exceptions import (ConfigEntryAuthFailed, ConfigEntryError,
+                                      ConfigEntryNotReady)
 from homeassistant.helpers import discovery
 from homeassistant.helpers.update_coordinator import (CoordinatorEntity,
                                                       DataUpdateCoordinator,
@@ -22,9 +25,43 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["binary_sensor", "climate", "fan", "humidifier", "number", "sensor", "switch", "light"]
 DATA_UPDATE_INTERVAL = timedelta(seconds=30)
 BASE_TIMEOUT = 5
+# awscrt's MQTT connect has no timeout of its own; never let login block setup forever.
+LOGIN_TIMEOUT = 120
+
+# Substrings of RuntimeError messages produced by LibJciHitachi that mean the
+# credentials are wrong (aws_connection.py: "<__type> <message>" from Cognito,
+# and "Invalid email or password" from the IoT API).
+AUTH_ERROR_MARKERS = (
+    "NotAuthorizedException",
+    "UserNotFoundException",
+    "UserNotConfirmedException",
+    "PasswordResetRequiredException",
+    "Invalid email or password",
+)
+
+# Errors that are transient (network/DNS not up yet at boot, cloud hiccup,
+# non-JSON error page, unexpected response shape). Setup should be retried.
+TRANSIENT_ERRORS = (httpx.HTTPError, TimeoutError, OSError, json.JSONDecodeError, KeyError)
 
 
-def build_coordinator(hass, api):
+def is_auth_error(err: BaseException) -> bool:
+    """Return True if the library error indicates invalid credentials."""
+    return isinstance(err, RuntimeError) and any(marker in str(err) for marker in AUTH_ERROR_MARKERS)
+
+
+async def async_logout(hass, api) -> None:
+    """Best-effort MQTT disconnect.
+
+    ``api.logout()`` is not None-safe when login never reached the MQTT stage,
+    so any error here is ignored.
+    """
+    try:
+        await hass.async_add_executor_job(api.logout)
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.debug("Ignoring error during logout: %s", err)
+
+
+def build_coordinator(hass, api, config_entry=None):
 
     timeout = BASE_TIMEOUT + len(api.things) * 2
 
@@ -37,12 +74,12 @@ def build_coordinator(hass, api):
         try:
             # Note: asyncio.TimeoutError and aiohttp.ClientError are already
             # handled by the data update coordinator.
-            async with async_timeout.timeout(timeout):
+            async with asyncio.timeout(timeout):
                 await hass.async_add_executor_job(api.refresh_status)
                 hass.data[DOMAIN][UPDATED_DATA] = api.get_status(legacy=True)
 
-        except asyncio.TimeoutError as err:
-            raise UpdateFailed(f"Command executed timed out when regularly fetching data.")
+        except TimeoutError as err:
+            raise UpdateFailed("Command executed timed out when regularly fetching data.") from err
 
         except Exception as err:
             raise UpdateFailed(f"Error communicating with API: {err}")
@@ -55,6 +92,7 @@ def build_coordinator(hass, api):
         _LOGGER,
         # Name of the data. For logging purposes.
         name=DOMAIN,
+        config_entry=config_entry,
         update_method=async_update_data,
         # Polling interval. Will only be polled if there are subscribers.
         update_interval=DATA_UPDATE_INTERVAL,
@@ -106,8 +144,8 @@ async def async_setup(hass, config):
     hass.data[DOMAIN][API] = api
     hass.data[DOMAIN][UPDATE_DATA] = Queue()
     hass.data[DOMAIN][UPDATED_DATA] = api.get_status(legacy=True)
-    hass.data[DOMAIN][COORDINATOR] = build_coordinator(hass, api)
-    
+    hass.data[DOMAIN][COORDINATOR] = build_coordinator(hass, api, config_entry=None)
+
     # Start jcihitachi components
     _LOGGER.debug("Starting JciHitachi components.")
     for platform in PLATFORMS:
@@ -129,45 +167,77 @@ async def async_setup_entry(hass, config_entry):
         }
     )
 
-    if config.get(CONF_DEVICES) == []:
-        config[CONF_DEVICES] = None
+    # Do not mutate config_entry.data in place; an empty list means "all devices".
+    device_names = config.get(CONF_DEVICES) or None
 
-    if DOMAIN not in hass.data:
-        api = JciHitachiAWSAPI(
-            email=config.get(CONF_EMAIL),
-            password=config.get(CONF_PASSWORD),
-            device_names=config.get(CONF_DEVICES),
-            max_retries=config.get(CONF_RETRY),
-        )
+    api = JciHitachiAWSAPI(
+        email=config.get(CONF_EMAIL),
+        password=config.get(CONF_PASSWORD),
+        device_names=device_names,
+        max_retries=config.get(CONF_RETRY),
+    )
 
-        try:
+    try:
+        async with asyncio.timeout(LOGIN_TIMEOUT):
             await hass.async_add_executor_job(api.login)
-        except AssertionError as err:
-            _LOGGER.error(f"Assertion check error: {err}")
-            return False
-        except RuntimeError as err:
-            _LOGGER.error(f"Failed to login API: {err}")
-            return False
-        
-        hass.data[DOMAIN] = {}
-        hass.data[DOMAIN][API] = api
-    else:
-        assert API in hass.data[DOMAIN], f"The storage for {DOMAIN} exists but the API instance does not."
-        _LOGGER.debug("The API instance has been created in config flow, skipping login.")
+    except AssertionError as err:
+        # A configured device name is not present in the account: permanent
+        # until the user fixes the configuration.
+        await async_logout(hass, api)
+        raise ConfigEntryError(
+            f"Configured device(s) not available from the API: {err}"
+        ) from err
+    except RuntimeError as err:
+        await async_logout(hass, api)
+        if is_auth_error(err):
+            raise ConfigEntryAuthFailed(f"Invalid credentials: {err}") from err
+        # MQTT connect failure, device offline at boot, cloud 5xx, etc.: retry.
+        raise ConfigEntryNotReady(f"Hitachi cloud not ready: {err}") from err
+    except TRANSIENT_ERRORS as err:
+        await async_logout(hass, api)
+        raise ConfigEntryNotReady(
+            f"Cannot reach Hitachi cloud (network/DNS not ready?): {err}"
+        ) from err
+    except Exception as err:  # noqa: BLE001
+        # Never leave the entry in setup_error for an unknown reason.
+        await async_logout(hass, api)
+        _LOGGER.exception("Unexpected error during login")
+        raise ConfigEntryNotReady(f"Unexpected error during login: {err}") from err
+
+    hass.data[DOMAIN] = {API: api}
 
     _LOGGER.debug(f"Backend version: {__version__}")
     _LOGGER.debug(f"Thing info: {[thing for thing in hass.data[DOMAIN][API].things.values()]}")
 
     hass.data[DOMAIN][UPDATE_DATA] = Queue()
     hass.data[DOMAIN][UPDATED_DATA] = hass.data[DOMAIN][API].get_status(legacy=True)
-    hass.data[DOMAIN][COORDINATOR] = build_coordinator(hass, hass.data[DOMAIN][API])
+    hass.data[DOMAIN][COORDINATOR] = build_coordinator(hass, hass.data[DOMAIN][API], config_entry=config_entry)
 
     # Start jcihitachi components
-    _LOGGER.debug("Starting JciHitachi components.") 
+    _LOGGER.debug("Starting JciHitachi components.")
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
-        
-    
+
     # Return boolean to indicate that initialization was successful.
+    return True
+
+
+async def async_unload_entry(hass, config_entry) -> bool:
+    """Unload a config entry (enables reload from the UI and after reauth)."""
+
+    unload_ok = await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS)
+    if not unload_ok:
+        return False
+
+    # Order: platforms (done above) -> coordinator -> MQTT disconnect.
+    data = hass.data.pop(DOMAIN, None)
+    if data:
+        coordinator = data.get(COORDINATOR)
+        if coordinator is not None:
+            await coordinator.async_shutdown()
+        api = data.get(API)
+        if api is not None:
+            await async_logout(hass, api)
+
     return True
 
 

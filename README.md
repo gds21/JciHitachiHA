@@ -1,8 +1,16 @@
 # Jci-Hitachi Home Assistant Integration
 
+[![Validate](https://github.com/gds21/JciHitachiHA/actions/workflows/validation.yml/badge.svg)](https://github.com/gds21/JciHitachiHA/actions/workflows/validation.yml)
 [![System Status](https://github.com/qqaatw/LibJciHitachi/actions/workflows/Status.yml/badge.svg)](https://github.com/qqaatw/LibJciHitachi/actions/workflows/Status.yml)
 
-*If you find the project useful and want to support it, you can buy me a chocolate cake via [Jkopay(街口)](.github/jkopay.jpg) or [ko-fi](https://ko-fi.com/qqaatw). Your name will be listed on [Chocolate Cake Buyers](ChocolateCakeBuyers.md).*
+> **This is a maintained fork of [qqaatw/JciHitachiHA](https://github.com/qqaatw/JciHitachiHA).**
+> All credit for the original integration and the [LibJciHitachi](https://github.com/qqaatw/LibJciHitachi) backend goes to [@qqaatw](https://github.com/qqaatw).
+>
+> Changes in this fork (since 1.10.0):
+> - Startup is retried automatically when the network/DNS is not ready yet (previously the integration failed permanently until Home Assistant was restarted).
+> - The integration can be reloaded from the UI (Settings → Integrations → JciHitachi TW → Reload).
+> - A re-authentication flow is shown when the account password changes.
+> - Only one account can be configured (same as before in practice, now enforced).
 
 ## Feature
 A home assistant integration for controlling Jci Hitachi devices, using [LibJciHitachi](https://github.com/qqaatw/LibJciHitachi) backend.
@@ -13,7 +21,7 @@ A home assistant integration for controlling Jci Hitachi devices, using [LibJciH
 1. Install [HACS](https://hacs.xyz/docs/use/download/download/).
 2. Click this button to open HACS and install the integration:
 
-   [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=qqaatw&repository=JciHitachiHA)
+   [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=gds21&repository=JciHitachiHA)
 
 ### Configuring via UI
 

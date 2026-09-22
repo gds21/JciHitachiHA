@@ -1,4 +1,6 @@
 {
-  "name": "JciHitachiHA",
-  "country": "TW"
+  "name": "JciHitachiHA (gds21 fork)",
+  "country": "TW",
+  "homeassistant": "2025.1.0",
+  "render_readme": true
 }

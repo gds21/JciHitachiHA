@@ -1,11 +1,13 @@
 {
   "domain": "jcihitachi_tw",
   "name": "JciHitachi TW",
-  "codeowners": ["@qqaatw"],
+  "codeowners": ["@gds21"],
   "config_flow": true,
-  "documentation": "https://github.com/qqaatw/JciHitachiHA",
+  "documentation": "https://github.com/gds21/JciHitachiHA",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/qqaatw/JciHitachiHA/issues",
+  "issue_tracker": "https://github.com/gds21/JciHitachiHA/issues",
+  "loggers": ["JciHitachi"],
   "requirements": ["LibJciHitachi==1.7.2"],
-  "version": "1.9.5"
+  "single_config_entry": true,
+  "version": "1.10.0"
 }

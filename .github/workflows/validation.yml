@@ -1,21 +1,32 @@
-name: Validate with hassfest
+name: Validate
 
 on:
   push:
+    branches: [master]
   pull_request:
-  schedule:
-    - cron:  '0 0 * * *'
+  workflow_dispatch:
 
 jobs:
-  validate:
+  hassfest:
     runs-on: "ubuntu-latest"
     steps:
       - uses: "actions/checkout@v4"
       - uses: "home-assistant/actions/hassfest@master"
-  hacs-validate:
+  hacs:
     runs-on: "ubuntu-latest"
     steps:
+      - uses: "actions/checkout@v4"
       - name: HACS validate
         uses: "hacs/action@main"
         with:
           category: "integration"
+          ignore: "brands"
+  tests:
+    runs-on: "ubuntu-latest"
+    steps:
+      - uses: "actions/checkout@v4"
+      - uses: "actions/setup-python@v5"
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements_test.txt
+      - run: python -m pytest -q

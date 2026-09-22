@@ -1,0 +1,3 @@
+homeassistant==2026.2.1
+pytest-homeassistant-custom-component
+LibJciHitachi==1.7.2
