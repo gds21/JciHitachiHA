@@ -51,9 +51,14 @@ async def _setup(hass):
 
 
 async def _poll(hass, times=1):
+    """Fire the coordinator's 30 s timer and wait for the refresh.
+
+    Scheduled refreshes run as config-entry background tasks, which
+    async_block_till_done() skips unless asked to wait for them.
+    """
     for _ in range(times):
         async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=31))
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
 
 
 LIVING_SENSOR = f"sensor.{LIVING}_indoor_temperature"
