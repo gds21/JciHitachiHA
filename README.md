@@ -11,6 +11,11 @@
 > - The integration can be reloaded from the UI (Settings → Integrations → JciHitachi TW → Reload).
 > - A re-authentication flow is shown when the account password changes.
 > - Only one account can be configured (same as before in practice, now enforced).
+>
+> Since 1.11.0:
+> - Entities become **unavailable** when the cloud stops answering, instead of showing stale data forever. Each device is polled on its own, so one offline unit no longer hides the others.
+> - A command that the Hitachi cloud does not confirm now fails the service call (and is logged) instead of silently keeping the old state.
+> - After 5 consecutive polls with no answer from any device, the integration reloads itself to rebuild the login and MQTT connection.
 
 ## Feature
 A home assistant integration for controlling Jci Hitachi devices, using [LibJciHitachi](https://github.com/qqaatw/LibJciHitachi) backend.

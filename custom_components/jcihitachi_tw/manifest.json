@@ -9,5 +9,5 @@
   "loggers": ["JciHitachi"],
   "requirements": ["LibJciHitachi==1.7.2"],
   "single_config_entry": true,
-  "version": "1.10.0"
+  "version": "1.11.0"
 }
